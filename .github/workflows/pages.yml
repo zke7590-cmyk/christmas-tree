@@ -1,0 +1,43 @@
+name: Deploy Christmas tree
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Prepare same-origin hand tracking assets
+        run: |
+          mkdir -p public/vision
+          curl -fsSL --retry 3 https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-0.10.21.tgz -o vision.tgz
+          tar -xzf vision.tgz --strip-components=1 -C public/vision package/vision_bundle.mjs package/wasm
+          curl -fsSL --retry 3 https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task -o public/vision/hand_landmarker.task
+          python3 - <<'PY'
+          from pathlib import Path
+          html = Path('index.html').read_text()
+          replacements = {
+              'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21': './vision',
+              "base+'/+esm'": "base+'/vision_bundle.mjs'",
+              'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task': './vision/hand_landmarker.task',
+          }
+          for old, new in replacements.items():
+              assert html.count(old) == 1, old
+              html = html.replace(old, new)
+          Path('public/index.html').write_text(html)
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - uses: actions/deploy-pages@v4
